@@ -11,11 +11,16 @@ from replication_scripts.constants import subject_short_name
 from replication_scripts.calculate_deepmutationpp_results import get_deepmutationpp_res
 
 
-def get_overall_mutation_score(stats_dir, train_stats_dir):
+def get_overall_mutation_score(stats_dir, train_stats_dir, name):
     mutation_score = 0
     operator_num = 0
     excluded_num = 0
     score_dict = {}
+
+    csv_file_path = os.path.join(mutation_score_dir, subject_name + '_' + name + '.csv')
+    with open(csv_file_path, 'a') as f1:
+        writer = csv.writer(f1, delimiter=',', lineterminator='\n', )
+        writer.writerow(['operator_name', 'operator_ms', 'operator_instability_score'])
 
     for filename in glob.glob(os.path.join(stats_dir, "*")):
         if '.csv' in filename:
@@ -25,8 +30,21 @@ def get_overall_mutation_score(stats_dir, train_stats_dir):
                 test_score, ins_score = get_exhaustive_operator_mutation_score(filename, train_stats_dir)
 
             if test_score != -1:
-                score_dict[filename.replace(stats_dir + os.path.sep, '')] = {'test_score': test_score,
-                                                                             'ins_score': ins_score}
+                operator = filename.replace(stats_dir + os.path.sep, '')
+                score_dict[operator] = {'test_score': test_score,
+                                        'ins_score': ins_score}
+
+                if ins_score == 0:
+                    mutation_score = mutation_score + test_score
+                    operator_num = operator_num + 1
+
+                with open(csv_file_path, 'a') as f1:
+                    writer = csv.writer(f1, delimiter=',', lineterminator='\n', )
+                    writer.writerow([operator, test_score, ins_score])
+
+    with open(csv_file_path, 'a') as f1:
+        writer = csv.writer(f1, delimiter=',', lineterminator='\n', )
+        writer.writerow(['', mutation_score / operator_num, ''])
 
     return score_dict
 
@@ -315,6 +333,17 @@ def get_mutation_score(score_dict):
     return overall_mutation_score / operator_num
 
 
+def get_mutation_score(score_dict):
+    overall_mutation_score = 0
+    operator_num = 0
+    for key in score_dict:
+        if key not in unstable_operators:
+            overall_mutation_score = overall_mutation_score + score_dict[key]['test_score']
+            operator_num = operator_num + 1
+
+    return overall_mutation_score / operator_num
+
+
 if __name__ == "__main__":
     replication_dir = os.path.join('..', '..')
     mutation_score_dir = os.path.join(replication_dir, 'Results', 'mutation_score')
@@ -339,12 +368,12 @@ if __name__ == "__main__":
         killed_name_list = []
         accuracy_dir = os.path.join(replication_dir, "Data", "deepcrime_output", subject_name, "results_strong_ts")
         stats_dir = os.path.join(accuracy_dir, 'stats')
-        score_dict_strong = get_overall_mutation_score(stats_dir, train_stats_dir)
+        score_dict_strong = get_overall_mutation_score(stats_dir, train_stats_dir, "results_strong_ts")
 
         killed_name_list = []
         accuracy_dir = os.path.join(replication_dir, "Data", "deepcrime_output", subject_name, "results_weak_ts")
         stats_dir = os.path.join(accuracy_dir, 'stats')
-        score_dict_weak = get_overall_mutation_score(stats_dir, train_stats_dir)
+        score_dict_weak = get_overall_mutation_score(stats_dir, train_stats_dir, "results_weak_ts")
 
         unstable_operators = []
         get_unstable_operators(score_dict_strong)

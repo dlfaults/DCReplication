@@ -10,10 +10,9 @@ import tensorflow as tf
 import os
 import argparse
 from tensorflow import math
+from replication_scripts.util_scripts.audio_model_mod import get_all_data
 
 from replication_scripts.batch_generator import Generator
-from replication_scripts.udacity_weak_ts_construction import load_data
-#from test_models.train_self_driving_car import load_data
 
 
 class Model:
@@ -40,7 +39,7 @@ class MnistModel(Model):
 
     def get_test_data(self):
         (x_train, y_train), (x_test, y_test) = mnist.load_data()
-        x_train, y_train, y_train_cl = self.input_reshape_test(self, x_train, y_train, 10)
+        x_train, y_train, y_train_cl = self.input_reshape_test(x_train, y_train, 10)
         return x_train, y_train, y_train_cl
 
     def get_prediction_info(self, model_file):
@@ -49,6 +48,7 @@ class MnistModel(Model):
         with graph1.as_default():
             session1 = tf.compat.v1.Session()
             with session1.as_default():
+                print('Predicting for', model_file)
                 model = tf.keras.models.load_model(model_file)
                 predictions = model.predict_classes(x_train)
         array = np.equal(predictions, y_train)
@@ -56,10 +56,9 @@ class MnistModel(Model):
 
 
 class MovieModel(Model):
-    movielens_dir = '/Users/usi/Documents/precrime_mutation/deepcrime_results/datasets/ml-latest-small/'
-
+    movielens_dir = os.path.join('..', '..', 'Datasets', 'MovieRecommender', 'ml-latest-small')
     def get_test_data(self):
-        ratings_file = self.movielens_dir + "ratings.csv"
+        ratings_file = os.path.join(self.movielens_dir, "ratings.csv")
         df = pd.read_csv(ratings_file)
         user_ids = df["userId"].unique().tolist()
         user2user_encoded = {x: i for i, x in enumerate(user_ids)}
@@ -92,14 +91,13 @@ class MovieModel(Model):
             y[:train_indices],
             y[train_indices:],
         )
-        print(x_train)
         x_train, x_test, y_train, y_test = train_test_split(x_train, y_train, test_size=0.2, random_state=1)
 
         return x_train, y_train
 
     def get_model(self, model_file):
         EMBEDDING_SIZE = 50
-        ratings_file = self.movielens_dir + "ratings.csv"
+        ratings_file = os.path.join(self.movielens_dir, "ratings.csv")
         df = pd.read_csv(ratings_file)
 
         user_ids = df["userId"].unique().tolist()
@@ -119,9 +117,7 @@ class MovieModel(Model):
             loss=tf.keras.losses.BinaryCrossentropy(), optimizer=keras.optimizers.Adam(lr=0.001),
             metrics=['mse']
         )
-        print(model_file)
-        file = model_file.replace('.h5', '/') + 'movie_recomm_trained.h5py'
-        print(os.path.exists(model_file.replace('.h5', '/')))
+        file = os.path.join(model_file.replace('.h5', '/'), 'movie_recomm_trained.h5py')
         modell.load_weights(file)
         return modell
 
@@ -132,13 +128,13 @@ class MovieModel(Model):
             session1 = tf.compat.v1.Session()
             with session1.as_default():
                 model = self.get_model(model_file)
-                # scores = model.evaluate(x_test, y_test_cl)
                 predictions = model.predict(x_test)
 
-        #array = np.isclose(predictions.flatten(), y_test, 0.12)
         diff = np.abs(predictions.flatten() - y_test)
         array = diff <= 0.12
         return array
+
+
 
 class RecommenderNet(keras.Model):
     def __init__(self, num_users, num_movies, embedding_size, **kwargs):
@@ -173,11 +169,29 @@ class RecommenderNet(keras.Model):
         return tf.nn.sigmoid(x)
 
 
+class AudioModel(Model):
 
+    def get_test_data(self):
+        train_ds, test_ds, valid_ds, class_names = get_all_data()
+        return train_ds
+
+    def get_prediction_info(self, model_file):
+        test_ds = self.get_test_data()
+        index = 0
+
+        audio_model = tf.keras.models.load_model(model_file)
+        equality_array = np.empty(0, dtype = bool)
+        for element in test_ds:
+            predicted = np.argmax(audio_model.predict(element), axis = 1)
+            correct_prediction_array = element[1].numpy()
+            partial_equality_array = np.equal(predicted, correct_prediction_array)
+            equality_array = np.append(equality_array, partial_equality_array, axis = 0)
+
+        return equality_array
+
+    
 class UnityModel(Model):
     def angle_loss_fn(self, y_true, y_pred):
-        # print(y_true.shape)
-        # print(y_pred.shape)
         x_p = math.sin(y_pred[:, 0]) * math.cos(y_pred[:, 1])
         y_p = math.sin(y_pred[:, 0]) * math.sin(y_pred[:, 1])
         z_p = math.cos(y_pred[:, 0])
@@ -203,10 +217,10 @@ class UnityModel(Model):
         return loss_val
 
     def get_test_data(self):
-        dataset_folder = "\\mutation-tool\\datasets\\"
-        x_img = np.load(dataset_folder + 'dataset_x_img.npy')
-        x_head_angles = np.load(dataset_folder + 'dataset_x_head_angles_np.npy')
-        y_gaze_angles = np.load(dataset_folder + 'dataset_y_gaze_angles_np.npy')
+        dataset_folder = os.path.join('..', '..', 'Datasets', 'UnityEyes')
+        x_img = np.load(os.path.join(dataset_folder, 'dataset_x_img.npy'))
+        x_head_angles = np.load(os.path.join(dataset_folder, 'dataset_x_head_angles_np.npy'))
+        y_gaze_angles = np.load(os.path.join(dataset_folder, 'dataset_y_gaze_angles_np.npy'))
 
         x_img_train, x_img_test, x_ha_train, x_ha_test, y_gaze_train, y_gaze_test = train_test_split(x_img,
                                                                                                      x_head_angles,
@@ -239,15 +253,55 @@ class UdacityModel(Model):
     def get_test_data(self):
         parser = argparse.ArgumentParser(description='Behavioral Cloning Training Program')
         parser.add_argument('-d', help='data directory', dest='data_dir', type=str,
-                            default='C:\\Users\\41763\\repos\\udacity-self-driving-car\\datasets\\dataset5\\')
+                            default=os.path.join('..', '..', 'Datasets', 'Udacity'))
         parser.add_argument('-t', help='test size fraction', dest='test_size', type=float, default=0.2)
         parser.add_argument('-b', help='batch size', dest='batch_size', type=int, default=64)
         args = parser.parse_args()
-        x_train, x_valid, y_train, y_valid = load_data(args)
-        # data for training are augmented, data for validation are not
+        x_train, x_valid, y_train, y_valid = self.load_data(args)
         train_generator = Generator(x_train, y_train, True, args)
         validation_generator = Generator(x_valid, y_valid, False, args)
         return validation_generator
+
+    def load_data(self, args):
+        tracks = ["track1"]
+        drive = ['normal', 'recovery', 'reverse']
+
+        x = None
+        y = None
+        path = None
+        x_train = None
+        y_train = None
+        x_valid = None
+        y_valid = None
+
+        for track in tracks:
+            for drive_style in drive:
+                try:
+                    path = os.path.join(args.data_dir, track, drive_style, 'driving_log.csv')
+                    data_df = pd.read_csv(path)
+                    if x is None:
+                        x = data_df[['center', 'left', 'right']].values
+                        y = data_df['steering'].values
+                    else:
+                        x = np.concatenate((x, data_df[['center', 'left', 'right']].values), axis=0)
+                        y = np.concatenate((y, data_df['steering'].values), axis=0)
+                except FileNotFoundError:
+                    print("Unable to read file %s" % path)
+                    continue
+
+        if x is None or y is None:
+            print("No driving data were provided for training. Provide correct paths to the driving_log.csv files")
+            exit()
+
+        try:
+            x_train, x_valid, y_train, y_valid = train_test_split(x, y, test_size=args.test_size, random_state=0)
+        except TypeError:
+            print("Missing header to csv files")
+            exit()
+
+        print("Train dataset: " + str(len(x_train)) + " elements")
+        print("Test dataset: " + str(len(x_valid)) + " elements")
+        return x_train, x_valid, y_train, y_valid
 
     def get_prediction_info(self, model_file):
         train_generator = self.get_test_data()
@@ -255,20 +309,14 @@ class UdacityModel(Model):
         equality_array = np.empty(0, dtype=bool)
         actual_prediction = np.empty(0, dtype=float)
         correct_prediction = np.empty(0, dtype=float)
+
         for d, l in train_generator:
             pred = model.predict(d)
             actual_prediction = np.concatenate((actual_prediction, np.squeeze(pred)), axis=0)
             correct_prediction = np.concatenate((correct_prediction, l), axis=0)
 
         diff = np.abs(correct_prediction - actual_prediction)
-        print('diff', np.std(diff), np.mean(diff))
-        equality_array = np.argwhere(diff >= 0.4)
+        equality_array = diff < 0.3
         K.clear_session()
 
         return equality_array
-
-if __name__ == "__main__":
-    U = UdacityModel()
-    model_path = "C:\\Users\\41763\\Documents\\mutation-tool-udacity\\mutation-tool-udacity\\trained_models\\udacity_original_0.h5"
-    check = U.get_prediction_info(model_path)
-    print(len(check), len(np.argwhere(check == True)))

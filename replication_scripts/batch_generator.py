@@ -1,5 +1,5 @@
 from tensorflow.keras.utils import Sequence
-from DeepCrime.udacity.utils import IMAGE_HEIGHT, IMAGE_WIDTH, IMAGE_CHANNELS, load_image, augment, preprocess
+from replication_scripts.udacity_utils import IMAGE_HEIGHT, IMAGE_WIDTH, IMAGE_CHANNELS, load_image, augment, preprocess
 import numpy as np
 
 

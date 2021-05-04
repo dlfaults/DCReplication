@@ -1,8 +1,5 @@
 import shutil
 import pickle
-import numpy as np
-import pandas as pd
-import os
 from replication_scripts.utils import *
 import networkx as nx
 
@@ -103,8 +100,7 @@ def analyse_redundancy(array_dir, threshold=100):
     rs_csv_file = os.path.join(output_dir, 'redundancy_score' + str(threshold) + '.csv')
     g = nx.DiGraph()
 
-    if subject_name in ('movie_recomm', 'audio', 'udacity'):
-        unstable_inputs_dict = get_dict(array_dir)
+    unstable_inputs_dict = get_dict(array_dir)
 
     for prefix1 in mutation_prefix_list:
         if prefix1 not in g:
@@ -113,19 +109,11 @@ def analyse_redundancy(array_dir, threshold=100):
         killing_info1 = np.load(os.path.join(array_dir,  str(prefix1) + '_ki.npy'))
         killing_probabilities1 = np.sum(killing_info1, axis=0) / len(killing_info1)
 
-        if subject_name in ('lenet', 'mnist'):
-            filename = os.path.join(dict_dir, 'input_dict_' + str(prefix1) + '.pickle')
-            with open(filename, 'rb') as f:
-                unstable_inputs_dict = pickle.load(f)
-
         for prefix2 in mutation_prefix_list:
             if prefix1 != prefix2 and prefix1 != prefix2 + '.0':
                 killing_info2 = np.load(os.path.join(array_dir, str(prefix2) + '_ki.npy'))
                 killing_probabilities2 = np.sum(killing_info2, axis=0) / len(killing_info2)
-                if subject_name in ('lenet', 'mnist'):
-                    indices_to_delete = unstable_inputs_dict[prefix2]
-                else:
-                    indices_to_delete = unstable_inputs_dict[prefix1][prefix2]
+                indices_to_delete = unstable_inputs_dict[prefix1][prefix2]
 
                 if len(indices_to_delete) < len(killing_probabilities1):
                     killing_probabilities1_copy = np.delete(killing_probabilities1, indices_to_delete)
@@ -157,20 +145,8 @@ def analyse_redundancy(array_dir, threshold=100):
 def get_dict(array_dir):
     input_dict = dict()
     input_dict_file = os.path.join(dict_dir, "input_dict_new.pickle")
-
-    if 'movie' in output_dir or 'audio' in output_dir  or 'udacity' in output_dir:
-        with open(input_dict_file, 'rb') as f:
-            input_dict = pickle.load(f)
-
-    elif 'mnist' in output_dir or 'unity' in output_dir:
-        input_dict = dict()
-        for filename in glob.glob((dict_dir + '/*')):
-            if 'input_dict' in filename:
-                with open(filename, 'rb') as f:
-                    partial_dict = pickle.load(f)
-
-                input_dict.update(partial_dict)
-
+    with open(input_dict_file, 'rb') as f:
+        input_dict = pickle.load(f)
     return input_dict
 
 
@@ -206,6 +182,5 @@ if __name__ == "__main__":
         i = i + 1
 
     final_table.to_csv(os.path.join(redundancy_output_dir, 'table5.csv'))
-
 
 

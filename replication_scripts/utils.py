@@ -2,7 +2,7 @@ import os
 import csv
 import glob
 import statsmodels.stats.proportion as smp
-from Model import *
+from replication_scripts.Model import *
 
 
 def get_outcome_row_index(filename):

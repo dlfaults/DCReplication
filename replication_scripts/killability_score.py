@@ -5,6 +5,8 @@ from replication_scripts.utils import get_outcome_row_index
 
 def get_binary_operator_kill_score(filename, subject, killed_conf):
     if 'delete_td' in filename:
+        if killed_conf == 99:
+            return 0.01
         return (99 - killed_conf) / 99
 
     if 'change_learning_rate' in filename:
@@ -17,6 +19,9 @@ def get_binary_operator_kill_score(filename, subject, killed_conf):
 
     if 'patience' in filename:
         return (killed_conf - 1) / (subject_params[subject]['patience'] - 1)
+
+    if killed_conf == 100:
+        return 0.01
 
     return (100 - killed_conf) / 100
 

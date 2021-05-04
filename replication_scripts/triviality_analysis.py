@@ -103,13 +103,12 @@ def calculate_killability_score(subject_name):
             ks_score = get_binary_kill_score(file, subject_name)
         else:
             ks_score = get_exh_kill_score(file)
-        killability_scores.append(round(ks_score, 2))
+        killability_scores.append(round(ks_score * 100, 0))
     df = pd.DataFrame({'Operator': operators, subject_name + '_KS':killability_scores})
     return df
 
 
 if __name__ == "__main__":
-    #replication_dir = "/Volumes/Samsung_T5/deepcrime_replication/"
     replication_dir = os.path.join('..', '..')
     model_num = 20
     triviality_output_dir = os.path.join(replication_dir, "Results", "triviality_analysis")
@@ -118,7 +117,7 @@ if __name__ == "__main__":
 
     os.mkdir(triviality_output_dir)
 
-    subjects = ["mnist", "audio", "movie_recomm", "udacity", "lenet"]
+    subjects = ["mnist", "audio", "movie_recomm", "lenet", "udacity"]
     final_table = pd.DataFrame({'Operator': list(operator_name_dict.keys())})
     final_table.set_index('Operator')
 
@@ -127,9 +126,12 @@ if __name__ == "__main__":
         output_dir = os.path.join(replication_dir, "Data", "inputs_killability", subject_name)
         mutation_prefix_list = get_prefix_list(output_dir)
         column_ats = analyse_triviality(output_dir)
+
         column_ks = calculate_killability_score(subject_name)
         final_table = final_table.join(column_ks.set_index('Operator'), on='Operator')
         final_table = final_table.join(column_ats.set_index('Operator'), on='Operator')
         final_table.loc[final_table[subject_name + '_KS'] == 0, subject_name + '_TS'] = ''
+        final_table[subject_name + '_TS'] = pd.to_numeric(final_table[subject_name + '_TS'])
+        final_table[subject_name + '_TS'] = final_table[subject_name + '_TS'].round(decimals=3)
 
     final_table.to_csv(os.path.join(triviality_output_dir, "table4.csv"))

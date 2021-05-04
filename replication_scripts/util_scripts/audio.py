@@ -191,19 +191,10 @@ def get_test_df(type):
                 noises.extend(sample)
         noises = tf.stack(noises)
 
-        # print(len(noises))
-        # print(
-        #     "{} noise files were split into {} noise samples where each is {} sec. long".format(
-        #         len(noise_paths), noises.shape[0], noises.shape[1] // SAMPLING_RATE
-        #     )
-        # )
-
-        # Get the list of audio file paths along with their corresponding labels
-        # Get the list of audio file paths along with their corresponding labels
-
         #class_names = os.listdir(DATASET_AUDIO_PATH)
+        #print(class_names)
         class_names = ['Julia_Gillard', 'Nelson_Mandela', 'Benjamin_Netanyau', 'Magaret_Tarcher', 'Jens_Stoltenberg']
-
+        #print(class_names)
         # print("Our class names: {}".format(class_names, ))
 
         audio_paths = []

@@ -1,23 +1,21 @@
-import math
-import numpy as np
-import h5py
 import os
 import shutil
+import numpy as np
+
+import tensorflow as tf
+from tensorflow import keras
+
 from pathlib import Path
 
-import keras
-from keras import backend as K
-import tensorflow as tf
-
-os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+SAMPLING_RATE = 16000
 
 
+# Split noise into chunks of 16000 each
 def load_noise_sample(path):
     sample, sampling_rate = tf.audio.decode_wav(
         tf.io.read_file(path), desired_channels=1
     )
     if sampling_rate == SAMPLING_RATE:
-        # Number of slices of 16000 each that can be generated from the noise sample
         slices = int(sample.shape[0] / SAMPLING_RATE)
         sample = tf.split(sample[: slices * SAMPLING_RATE], slices)
         return sample
@@ -26,7 +24,24 @@ def load_noise_sample(path):
         return None
 
 
+def paths_and_labels_to_dataset(audio_paths, labels):
+    """Constructs a dataset of audios and labels."""
+    path_ds = tf.data.Dataset.from_tensor_slices(audio_paths)
+    audio_ds = path_ds.map(lambda x: path_to_audio(x))
+    label_ds = tf.data.Dataset.from_tensor_slices(labels)
+    return tf.data.Dataset.zip((audio_ds, label_ds))
+
+
+def path_to_audio(path):
+    """Reads and decodes an audio file."""
+    audio = tf.io.read_file(path)
+    audio, _ = tf.audio.decode_wav(audio, 1, SAMPLING_RATE)
+    return audio
+
+
 def add_noise(audio, noises=None, scale=0.5):
+    #print('audio', audio.shape)
+    #print('noises', noises.shape)
     if noises is not None:
         # Create a random tensor of the same size as audio ranging from
         # 0 to the number of noise stream samples that we have.
@@ -39,11 +54,13 @@ def add_noise(audio, noises=None, scale=0.5):
         prop = tf.math.reduce_max(audio, axis=1) / tf.math.reduce_max(noise, axis=1)
         prop = tf.repeat(tf.expand_dims(prop, axis=1), tf.shape(audio)[1], axis=1)
 
-        print(audio.shape)
-        print(noise.shape)
+        print('audio shape:', audio.shape)
+        print('noise shape:', noise.shape)
         print((noise * prop * scale).shape)
         # Adding the rescaled noise to audio
         audio = audio + noise * prop * scale
+
+    return audio
 
 
 def audio_to_fft(audio):
@@ -60,46 +77,41 @@ def audio_to_fft(audio):
     # which represents the positive frequencies
     return tf.math.abs(fft[:, : (audio.shape[1] // 2), :])
 
-
-def paths_and_labels_to_dataset(audio_paths, labels):
-    """Constructs a dataset of audios and labels."""
-    path_ds = tf.data.Dataset.from_tensor_slices(audio_paths)
-    audio_ds = path_ds.map(lambda x: path_to_audio(x))
-    label_ds = tf.data.Dataset.from_tensor_slices(labels)
-    return tf.data.Dataset.zip((audio_ds, label_ds))
-
-
-def get_audio_easy_indexes(model, test_ds):
-    index = 0
-    #easy_y = []
-    overall_num = 0
-    element_index = 0
-    list_of_confident = []
-    for element in test_ds:
-        print("element_index:" + str(element_index))
-        predicted = np.asarray(model.predict(element))
-        overall_num = overall_num + len(predicted)
-        correct_prediction_array = element[1].numpy()
-
-        for i in range(0, len(predicted)):
-            prediction = np.argmax(predicted[i])
-            confidence = np.max(predicted[i])
-            correct_prediction = correct_prediction_array[i]
-            print(str(prediction) + ' ' + str(correct_prediction) + ' ' + str(confidence))
-            if prediction == correct_prediction and confidence == 1.0:
-                print("this is the case:" + str(element_index) + ' ' + str(i))
-                list_of_confident.append(int(str(element_index) + '000' + str(i)))
-                #easy_y.append(element[1][i])
-
-        element_index = element_index + 1
-    print('overall num:' + str(overall_num))
-    return list_of_confident
+def residual_block(x, filters, conv_num=3, activation="relu"):
+    # Shortcut
+    s = keras.layers.Conv1D(filters, 1, padding="same")(x)
+    for i in range(conv_num - 1):
+        x = keras.layers.Conv1D(filters, 3, padding="same")(x)
+        x = keras.layers.Activation(activation)(x)
+    x = keras.layers.Conv1D(filters, 3, padding="same")(x)
+    x = keras.layers.Add()([x, s])
+    x = keras.layers.Activation(activation)(x)
+    return keras.layers.MaxPool1D(pool_size=2, strides=2)(x)
 
 
-def get_audio_eyes_weak_ts(model_dir, dataset_dir, weak_dataset_dir):
-    SAMPLING_RATE = 16000
-    DATASET_ROOT = dataset_dir
+def build_model(input_shape, num_classes):
+    inputs = keras.layers.Input(shape=input_shape, name="input")
 
+    x = residual_block(inputs, 16, 2)
+    x = residual_block(x, 32, 2)
+    x = residual_block(x, 64, 3)
+    x = residual_block(x, 128, 3)
+    x = residual_block(x, 128, 3)
+
+    x = keras.layers.AveragePooling1D(pool_size=3, strides=3)(x)
+    x = keras.layers.Flatten()(x)
+    x = keras.layers.Dense(256, activation="relu")(x)
+    x = keras.layers.Dense(128, activation="relu")(x)
+
+    outputs = keras.layers.Dense(num_classes, activation="softmax", name="output")(x)
+
+    return keras.models.Model(inputs=inputs, outputs=outputs)
+
+
+def get_all_data():
+    DATASET_ROOT = os.path.join('..', '..', 'Datasets', 'Audio', '16000_pcm_speeches')
+
+    BATCH_SIZE = 128
     # The folders in which we will put the audio samples and the noise samples
     AUDIO_SUBFOLDER = "audio"
     NOISE_SUBFOLDER = "noise"
@@ -107,34 +119,49 @@ def get_audio_eyes_weak_ts(model_dir, dataset_dir, weak_dataset_dir):
     DATASET_AUDIO_PATH = os.path.join(DATASET_ROOT, AUDIO_SUBFOLDER)
     DATASET_NOISE_PATH = os.path.join(DATASET_ROOT, NOISE_SUBFOLDER)
 
+    # Percentage of samples to use for validation
     VALID_SPLIT = 0.1
 
     # Percentage of samples to use for testing
     TEST_SPLIT = 0.2
 
+    # Seed to use when shuffling the dataset and the noise
     SHUFFLE_SEED = 43
 
+    # The sampling rate to use.
+    # This is the one used in all of the audio samples.
+    # We will resample all of the noise to this sampling rate.
+    # This will also be the output size of the audio wave samples
+    # (since all samples are of 1 second long)
+    # The factor to multiply the noise with according to:
+    #   noisy_sample = sample + noise * prop * scale
+    #      where prop = sample_amplitude / noise_amplitude
     SCALE = 0.5
 
-    BATCH_SIZE = 128
-    EPOCHS = 100
 
+    # If folder `audio`, does not exist, create it, otherwise do nothing
     if os.path.exists(DATASET_AUDIO_PATH) is False:
         os.makedirs(DATASET_AUDIO_PATH)
 
+    # If folder `noise`, does not exist, create it, otherwise do nothing
     if os.path.exists(DATASET_NOISE_PATH) is False:
         os.makedirs(DATASET_NOISE_PATH)
 
     for folder in os.listdir(DATASET_ROOT):
         if os.path.isdir(os.path.join(DATASET_ROOT, folder)):
             if folder in [AUDIO_SUBFOLDER, NOISE_SUBFOLDER]:
+                # If folder is `audio` or `noise`, do nothing
                 continue
             elif folder in ["other", "_background_noise_"]:
+                # If folder is one of the folders that contains noise samples,
+                # move it to the `noise` folder
                 shutil.move(
                     os.path.join(DATASET_ROOT, folder),
                     os.path.join(DATASET_NOISE_PATH, folder),
                 )
             else:
+                # Otherwise, it should be a speaker folder, then move it to
+                # `audio` folder
                 shutil.move(
                     os.path.join(DATASET_ROOT, folder),
                     os.path.join(DATASET_AUDIO_PATH, folder),
@@ -184,8 +211,9 @@ def get_audio_eyes_weak_ts(model_dir, dataset_dir, weak_dataset_dir):
         )
     )
 
-    class_names = os.listdir(DATASET_AUDIO_PATH)
+    class_names = ['Julia_Gillard', 'Nelson_Mandela', 'Benjamin_Netanyau', 'Magaret_Tarcher', 'Jens_Stoltenberg']
     print("Our class names: {}".format(class_names, ))
+
 
     audio_paths = []
     labels = []
@@ -217,6 +245,7 @@ def get_audio_eyes_weak_ts(model_dir, dataset_dir, weak_dataset_dir):
 
     train_audio_paths = audio_paths[:-num_val_samples]
     train_labels = labels[:-num_val_samples]
+    #print(train_audio_paths[0:5])
 
     print("Using {} files for validation.".format(num_val_samples))
     valid_audio_paths = audio_paths[-num_val_samples:]
@@ -231,15 +260,18 @@ def get_audio_eyes_weak_ts(model_dir, dataset_dir, weak_dataset_dir):
     train_audio_paths: 'x_train'
     train_labels: 'y_train'
 
+
     # Create 2 datasets, one for training and the other for validation
     train_ds = paths_and_labels_to_dataset(train_audio_paths, train_labels)
-    train_ds = train_ds.shuffle(buffer_size=BATCH_SIZE * 8, seed=SHUFFLE_SEED).batch(BATCH_SIZE)
+    train_ds = train_ds.shuffle(buffer_size=BATCH_SIZE * 8, seed=SHUFFLE_SEED).batch(
+        BATCH_SIZE
+    )
 
     valid_ds = paths_and_labels_to_dataset(valid_audio_paths, valid_labels)
     valid_ds = valid_ds.shuffle(buffer_size=32 * 8, seed=SHUFFLE_SEED).batch(32)
 
-    test_ds_orig = paths_and_labels_to_dataset(test_audio_paths, test_labels)
-    test_ds = test_ds_orig.shuffle(buffer_size=32 * 8, seed=SHUFFLE_SEED).batch(32)
+    test_ds = paths_and_labels_to_dataset(test_audio_paths, test_labels)
+    test_ds = test_ds.shuffle(buffer_size=32 * 8, seed=SHUFFLE_SEED).batch(32)
 
     # Add noise to the training set
     train_ds = train_ds.map(
@@ -263,44 +295,57 @@ def get_audio_eyes_weak_ts(model_dir, dataset_dir, weak_dataset_dir):
     )
     test_ds = test_ds.prefetch(tf.data.experimental.AUTOTUNE)
 
-    print("test_ds")
-    print(test_ds)
-
-    list_of_lists = []
-    for i in range(0, 3):
-        model_file = os.path.join(model_dir, 'audio_original_' + str(i) + '.h5')
-        model = tf.keras.models.load_model(model_file)
-        scores = model.evaluate(test_ds, verbose=0)
-        print(scores)
-        list_of_confident = get_audio_easy_indexes(model, test_ds)
-        print(len(list_of_confident))
-        list_of_lists.append(list_of_confident)
-
-    intersection = set(list_of_lists[0])
-    for index in range(0, len(list_of_lists)):
-        if index < len(list_of_lists) - 1:
-            intersection = set(intersection & set(list_of_lists[index + 1]))
-            print(intersection)
-        index = index + 1
-
-    print(len(intersection))
-
-    easy_num = 0
-
-    easy_x = np.empty([686, 8000, 1], dtype='float32')
+    return train_ds, test_ds, valid_ds, class_names
 
 
-    print("easy_num:" + str(easy_num))
-    print("easy_x:" + str(len(easy_x)) + " " + str(easy_x.shape))
-    print("easy_y:" + str(len(easy_y)))
+def main(model_name):
+    BATCH_SIZE = 128
+    EPOCHS = 100
+    #model_dir = "/home/ubuntu/mutation-tool/trained_models/"
+    model_dir = "/Volumes/LaCie/DeepCrime_Models/Audio/"
+    model_location = model_dir + model_name
+    # Get the data from https://www.kaggle.com/kongaevans/speaker-recognition-dataset/download
+    # and save it to the 'Downloads' folder in your HOME directory
 
-    easy_y = np.asarray(easy_y).reshape(len(easy_y),)
+    print('model_location', model_location)
+    train_ds, test_ds, valid_ds, class_names = get_all_data()
+    if not os.path.exists(model_location):
+        model = build_model((SAMPLING_RATE // 2, 1), len(class_names))
 
-    np.save(os.path.join(weak_dataset_dir, 'audio_easy_x.npy'), easy_x)
-    np.save(os.path.join(weak_dataset_dir, 'audio_easy_y.npy'), easy_y)
+        model.summary()
+
+        # Compile the model using Adam's default learning rate
+        model.compile(
+            optimizer="Adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"]
+        )
+
+        # Add callbacks:
+        # 'EarlyStopping' to stop training when the model is not enhancing anymore
+        # 'ModelCheckPoint' to always keep the model that has the best val_accuracy
+        model_save_filename = "audio_trained.h5"
+
+        earlystopping_cb = keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)
+        mdlcheckpoint_cb = keras.callbacks.ModelCheckpoint(
+            model_save_filename, monitor="val_accuracy", save_best_only=True
+        )
+
+        history = model.fit(
+            train_ds,
+            epochs=EPOCHS,
+            validation_data=valid_ds,
+            callbacks=[earlystopping_cb, mdlcheckpoint_cb],
+        )
+
+        model.save(model_location)
+        score = model.evaluate(test_ds, verbose=0)
+    else:
+        model = tf.keras.models.load_model(model_location, compile=True)
+        score = model.evaluate(test_ds, verbose=0)
+
+    print('Test loss:', score[0])
+    print('Test accuracy:', score[1])
+    return score
 
 
-if __name__ == '__main__':
-    get_audio_eyes_weak_ts(model_dir = os.path.join(), #'/home/ubuntu/mutation-tool/trained_models/'
-                            dataset_dir = os.path.join(), #"/home/ubuntu/16000_pcm_speeches"
-                            weak_dataset_dir= os.path.join()) #""
+if __name__ == "__main__":
+    main('audio_original_0.h5')

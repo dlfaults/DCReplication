@@ -59,11 +59,10 @@ def get_model_by_subject():
 
 if __name__ == "__main__":
     replication_dir = os.path.join('..', '..')
-    for subject_name in ('lenet', ):
+    for subject_name in ("mnist", "audio", "movie_recomm", "lenet", "udacity"):
         model = get_model_by_subject()
         model_num = 20
         model_dir = os.path.join(replication_dir, 'Models', subject_name)
-        #model_dir = "D:\\Nargiz\\Models\\unity-models-mutated\\"
         list_dir = os.path.join(replication_dir, "Data", "inputs_killability", subject_name)
 
         output_dir = os.path.join(replication_dir, "Results", "killability_analysis")

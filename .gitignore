@@ -115,3 +115,9 @@ dmypy.json
 
 # deepmutationpp
 deepmutationpp
+
+# Weak TS generation files
+audio_weak_ts_construction.py
+mnist_weak_ts_construction.py
+udacity_weak_ts_construction.py
+unityeyes_weak_ts_construction.py

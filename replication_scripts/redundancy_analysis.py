@@ -37,9 +37,8 @@ def generate_unstable_inputs_map(dict_dir, array_dir):
         pickle.dump(input_dict, f, pickle.HIGHEST_PROTOCOL)
 
 
-def get_replacement_name(stats_file_name, stats_dir, prefix):
-    killed_mutation = stats_file_name.replace(stats_dir, prefix + '_')
-    killed_mutation = killed_mutation.replace('_exssearch.csv', '_mutated0_MP')
+def get_replacement_name(stats_file_name, stats_dir, subject_name):
+    killed_mutation = stats_file_name.replace('_exssearch.csv', '_mutated0_MP')
     if subject_name == 'udacity' and 'change_epochs' in killed_mutation:
          killed_mutation = killed_mutation.replace('_binarysearch.csv', '_mutated0_MP_50')
     if 'change_learning_rate' in killed_mutation or 'change_epochs' in killed_mutation:
@@ -56,7 +55,7 @@ def get_replacement_name(stats_file_name, stats_dir, prefix):
     return killed_mutation
 
 
-def get_killed_from_csv(mutation_prefix_list, filename, stats_dir):
+def get_killed_from_csv(mutation_prefix_list, filename, stats_dir, subject_name):
     if is_binary_search_operator(filename):
         kill_index = 5
         value_index = 2
@@ -76,7 +75,7 @@ def get_killed_from_csv(mutation_prefix_list, filename, stats_dir):
                         parameter = parameter + '_' + parameter
 
                 short_name = filename[filename.rindex(os.path.sep) + 1:len(filename)]
-                file_name = get_replacement_name(short_name, stats_dir, 'lenet')
+                file_name = get_replacement_name(short_name, stats_dir, subject_name)
 
                 final_name = subject_name + '_' + file_name + '_' + parameter
                 if 'remove_validation_set' in file_name or 'disable_batching' in file_name:
@@ -85,13 +84,13 @@ def get_killed_from_csv(mutation_prefix_list, filename, stats_dir):
                 mutation_prefix_list.add(final_name)
 
 
-def get_killable_confs(dir):
+def get_killable_confs(dir, subject_name):
     mutation_prefix_list = set()
     sub_dirs = ['results_train', 'results_strong_ts', 'results_weak_ts']
     for subdir in sub_dirs:
         for filename in glob.glob(os.path.join(dir, subdir, "stats" + os.path.sep + "*")):
             file_short_name = filename[filename.rindex(os.path.sep) + 1:len(filename)]
-            get_killed_from_csv(mutation_prefix_list, filename, dir)
+            get_killed_from_csv(mutation_prefix_list, filename, dir, subject_name)
 
     return mutation_prefix_list
 
@@ -167,10 +166,9 @@ if __name__ == "__main__":
     for subject_name in subjects:
         print("Performing Redundancy Analysis for", subject_name)
         stats_dir = os.path.join(replication_dir, "Data", "deepcrime_output", subject_name)
-        mutation_prefix_list = get_killable_confs(stats_dir)
+        mutation_prefix_list = get_killable_confs(stats_dir, subject_name)
         output_dir = os.path.join(replication_dir, "Data", "inputs_killability", subject_name)
         dict_dir = os.path.join(replication_dir, "Data", "input_dicts", subject_name)
-        #generate_unstable_inputs_map(dict_dir, output_dir)
 
         redundant_nodes, non_redundant_nodes = analyse_redundancy(output_dir)
         assert (len(mutation_prefix_list) == len(redundant_nodes) + len(non_redundant_nodes))

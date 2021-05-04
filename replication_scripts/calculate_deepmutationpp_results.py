@@ -38,17 +38,19 @@ def angle_loss_fn_batch(y_true, y_pred):
     return loss_val
 
 
-def calc_ms_audio(dataset, dataset_type):
+def calc_ms_audio(y, dataset_type):
+# def calc_ms_audio(dataset, dataset_type):
 
-    dataset = list(dataset.as_numpy_iterator())
-
-    y = []
-    # x = []
-    for i, ds in enumerate(dataset):
-        # x.extend(ds[0])
-        y.extend(ds[1])
-
-    # x = np.asarray(x, dtype=np.float32)
+    # dataset = list(dataset.as_numpy_iterator())
+    #
+    # y = []
+    # # x = []
+    # for i, ds in enumerate(dataset):
+    #     # x.extend(ds[0])
+    #     y.extend(ds[1])
+    #
+    # # x = np.asarray(x, dtype=np.float32)
+    # np.save('audio_labels_'+ dataset_type+'.npy', y)
 
     orig_predictions = os.path.join(data_path, 'predictions', 'predictions_audio', 'orig', 'orig_' + dataset_type + '.npy')
     mut_predictions_path = os.path.join(data_path, 'predictions', 'predictions_audio', 'mutated')
